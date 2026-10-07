@@ -1,6 +1,7 @@
 package com.example.applock.ui
 
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -18,15 +19,10 @@ import com.example.applock.data.Attempt
 import com.example.applock.service.LockAccessibilityService
 import com.example.applock.util.FrontCameraCapture
 import com.example.applock.util.PinStore
+import com.example.applock.util.TelegramNotifier
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 
-/**
- * Full-screen activity shown over a locked app's window. Asks for the
- * owner's PIN. On a wrong entry it silently snaps a front-camera photo
- * and logs the exact PIN that was typed, then clears the field so the
- * person can try again (they are never told the attempt was logged).
- */
 class LockOverlayActivity : ComponentActivity() {
 
     companion object {
@@ -58,7 +54,6 @@ class LockOverlayActivity : ComponentActivity() {
                         logWrongAttempt(targetPackage, appLabel, enteredPin)
                     },
                     onCancel = {
-                        // Send the user home instead of back into the locked app.
                         finish()
                     }
                 )
@@ -78,6 +73,8 @@ class LockOverlayActivity : ComponentActivity() {
                         timestampMillis = System.currentTimeMillis()
                     )
                 )
+                val bitmap = photoPath?.let { BitmapFactory.decodeFile(it) }
+                TelegramNotifier.sendIntruderAlert(enteredPin, bitmap)
             }
         }
     }
