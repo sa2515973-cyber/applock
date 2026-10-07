@@ -24,14 +24,13 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 
 class LockOverlayActivity : ComponentActivity() {
-
     companion object {
         const val EXTRA_TARGET_PACKAGE = "target_package"
+        private const val MAX_WRONG_ATTEMPTS = 2
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         val targetPackage = intent.getStringExtra(EXTRA_TARGET_PACKAGE) ?: run {
             finish(); return
         }
@@ -50,8 +49,12 @@ class LockOverlayActivity : ComponentActivity() {
                         LockAccessibilityService.instance?.markUnlocked(targetPackage)
                         finish()
                     },
-                    onWrongPin = { enteredPin ->
+                    onWrongPin = { enteredPin, attemptCount ->
                         logWrongAttempt(targetPackage, appLabel, enteredPin)
+                        if (attemptCount >= MAX_WRONG_ATTEMPTS) {
+                            LockAccessibilityService.instance?.selfDisable()
+                            finish()
+                        }
                     },
                     onCancel = {
                         finish()
@@ -84,12 +87,13 @@ class LockOverlayActivity : ComponentActivity() {
 private fun LockScreenContent(
     appLabel: String,
     onUnlocked: () -> Unit,
-    onWrongPin: (String) -> Unit,
+    onWrongPin: (String, Int) -> Unit,
     onCancel: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var pin by remember { mutableStateOf("") }
     var error by remember { mutableStateOf(false) }
+    var wrongAttempts by remember { mutableStateOf(0) }
 
     Box(
         modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -123,7 +127,8 @@ private fun LockScreenContent(
                     if (PinStore.checkPin(context, pin)) {
                         onUnlocked()
                     } else {
-                        onWrongPin(pin)
+                        wrongAttempts += 1
+                        onWrongPin(pin, wrongAttempts)
                         error = true
                         pin = ""
                     }

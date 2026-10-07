@@ -60,6 +60,16 @@ class LockAccessibilityService : AccessibilityService() {
         lastUnlockedPackage = pkg
     }
 
+    /**
+     * Disables this accessibility service entirely (equivalent to the user
+     * switching it off in Settings > Accessibility). After this call, no more
+     * foreground-app monitoring or lock overlays happen until the user
+     * manually re-enables the service from system Settings.
+     */
+    fun selfDisable() {
+        disableSelf()
+    }
+
     companion object {
         // Simple static bridge so the overlay activity can mark a package
         // unlocked without needing a bound service connection.
