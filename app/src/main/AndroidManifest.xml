@@ -19,9 +19,7 @@
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.AppLock"
-        xmlns:tools="http://schemas.android.com/tools">
-    <uses-permission android:name="android.permission.INTERNET" />
+        android:theme="@style/Theme.AppLock">
 
         <activity
             android:name=".MainActivity"
