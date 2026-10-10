@@ -109,6 +109,7 @@ private fun LockScreenContent(
     val context = androidx.compose.ui.platform.LocalContext.current
     var pin by remember { mutableStateOf("") }
     var error by remember { mutableStateOf(false) }
+    var emptyError by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
     val shakeOffset = remember { Animatable(0f) }
 
@@ -150,9 +151,15 @@ private fun LockScreenContent(
 
             OutlinedTextField(
                 value = pin,
-                onValueChange = { if (it.length <= 8) { pin = it; error = false } },
+                onValueChange = {
+                    if (it.length <= 8) {
+                        pin = it
+                        error = false
+                        emptyError = false
+                    }
+                },
                 label = { Text("ادخل الرمز") },
-                isError = error,
+                isError = error || emptyError,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                 singleLine = true,
@@ -161,7 +168,10 @@ private fun LockScreenContent(
                     .fillMaxWidth()
                     .offset(x = shakeOffset.value.dp)
             )
-            if (error) {
+            if (emptyError) {
+                Spacer(Modifier.height(8.dp))
+                Text("من فضلك ادخل الرمز", color = MaterialTheme.colorScheme.error)
+            } else if (error) {
                 Spacer(Modifier.height(8.dp))
                 Text("رمز غلط", color = MaterialTheme.colorScheme.error)
             }
@@ -171,6 +181,18 @@ private fun LockScreenContent(
                 OutlinedButton(onClick = onCancel) { Text("رجوع للرئيسية") }
                 Spacer(Modifier.width(12.dp))
                 Button(onClick = {
+                    if (pin.isBlank()) {
+                        // Empty submission is not a real attempt: no photo,
+                        // no Telegram alert, no counter increment.
+                        emptyError = true
+                        coroutineScope.launch {
+                            shakeOffset.animateTo(10f, tween(50))
+                            shakeOffset.animateTo(-10f, tween(50))
+                            shakeOffset.animateTo(6f, tween(50))
+                            shakeOffset.animateTo(0f, tween(50))
+                        }
+                        return@Button
+                    }
                     if (PinStore.checkPin(context, pin)) {
                         onUnlocked()
                     } else {
