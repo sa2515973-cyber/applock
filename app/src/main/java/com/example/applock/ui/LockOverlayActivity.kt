@@ -5,6 +5,9 @@ import android.graphics.BitmapFactory
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
@@ -12,7 +15,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.applock.data.AppDatabase
 import com.example.applock.data.Attempt
@@ -20,6 +25,7 @@ import com.example.applock.service.LockAccessibilityService
 import com.example.applock.util.FrontCameraCapture
 import com.example.applock.util.PinStore
 import com.example.applock.util.TelegramNotifier
+import com.example.applock.util.WrongAttemptTracker
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 
@@ -41,20 +47,27 @@ class LockOverlayActivity : ComponentActivity() {
             targetPackage
         }
 
+        val initialAttempts = WrongAttemptTracker.getCount(applicationContext, targetPackage)
+
         setContent {
             MaterialTheme {
                 LockScreenContent(
                     appLabel = appLabel,
+                    initialAttempts = initialAttempts,
+                    maxAttempts = MAX_WRONG_ATTEMPTS,
                     onUnlocked = {
+                        WrongAttemptTracker.reset(applicationContext, targetPackage)
                         LockAccessibilityService.instance?.markUnlocked(targetPackage)
                         finish()
                     },
-                    onWrongPin = { enteredPin, attemptCount ->
+                    onWrongPin = { enteredPin ->
+                        val attemptCount = WrongAttemptTracker.increment(applicationContext, targetPackage)
                         logWrongAttempt(targetPackage, appLabel, enteredPin)
-                        if (attemptCount >= MAX_WRONG_ATTEMPTS) {
-                            LockAccessibilityService.instance?.selfDisable()
-                            finish()
-                        }
+                        attemptCount
+                    },
+                    onLockout = {
+                        LockAccessibilityService.instance?.selfDisable()
+                        finish()
                     },
                     onCancel = {
                         finish()
@@ -86,23 +99,53 @@ class LockOverlayActivity : ComponentActivity() {
 @Composable
 private fun LockScreenContent(
     appLabel: String,
+    initialAttempts: Int,
+    maxAttempts: Int,
     onUnlocked: () -> Unit,
-    onWrongPin: (String, Int) -> Unit,
+    onWrongPin: (String) -> Int,
+    onLockout: () -> Unit,
     onCancel: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var pin by remember { mutableStateOf("") }
     var error by remember { mutableStateOf(false) }
-    var wrongAttempts by remember { mutableStateOf(0) }
+    val coroutineScope = rememberCoroutineScope()
+    val shakeOffset = remember { Animatable(0f) }
+
+    var appeared by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { appeared = true }
+    val entranceScale by animateFloatAsState(
+        targetValue = if (appeared) 1f else 0.85f,
+        animationSpec = tween(durationMillis = 280),
+        label = "entranceScale"
+    )
+    val entranceAlpha by animateFloatAsState(
+        targetValue = if (appeared) 1f else 0f,
+        animationSpec = tween(durationMillis = 280),
+        label = "entranceAlpha"
+    )
 
     Box(
         modifier = Modifier.fillMaxSize().padding(24.dp),
         contentAlignment = Alignment.Center
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .fillMaxWidth(0.85f)
+                .graphicsLayer {
+                    scaleX = entranceScale
+                    scaleY = entranceScale
+                    alpha = entranceAlpha
+                }
+        ) {
             Text("🔒", style = MaterialTheme.typography.displayMedium)
             Spacer(Modifier.height(16.dp))
-            Text("$appLabel مقفول", style = MaterialTheme.typography.titleLarge)
+            Text(
+                "$appLabel مقفول",
+                style = MaterialTheme.typography.titleLarge,
+                textAlign = TextAlign.Center
+            )
             Spacer(Modifier.height(24.dp))
 
             OutlinedTextField(
@@ -112,7 +155,11 @@ private fun LockScreenContent(
                 isError = error,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                singleLine = true
+                singleLine = true,
+                textStyle = androidx.compose.ui.text.TextStyle(textAlign = TextAlign.Center),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .offset(x = shakeOffset.value.dp)
             )
             if (error) {
                 Spacer(Modifier.height(8.dp))
@@ -127,10 +174,18 @@ private fun LockScreenContent(
                     if (PinStore.checkPin(context, pin)) {
                         onUnlocked()
                     } else {
-                        wrongAttempts += 1
-                        onWrongPin(pin, wrongAttempts)
+                        val attemptCount = onWrongPin(pin)
                         error = true
                         pin = ""
+                        coroutineScope.launch {
+                            shakeOffset.animateTo(10f, tween(50))
+                            shakeOffset.animateTo(-10f, tween(50))
+                            shakeOffset.animateTo(6f, tween(50))
+                            shakeOffset.animateTo(0f, tween(50))
+                        }
+                        if (attemptCount >= maxAttempts) {
+                            onLockout()
+                        }
                     }
                 }) { Text("فتح") }
             }
